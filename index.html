@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Group Availability Tracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=MedievalSharp&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f0f0f0;
+      color: #333;
+    }
+    h1 {
+      margin-bottom: 10px;
+      font-family: 'MedievalSharp', cursive;
+      color: #8B4513;
+      text-align: center;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+    }
+    .controls, .toggle-form {
+      margin-bottom: 20px;
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(25, auto);
+      gap: 1px;
+      background: #ddd;
+      overflow-x: auto;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .header, .cell-wrapper {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 30px;
+      background: #f8f8f8;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .header {
+      background: #8B4513;
+      color: white;
+    }
+    .cell {
+      width: 24px;
+      height: 24px;
+      background: #f0f0f0;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .cell:hover {
+      transform: scale(1.1);
+    }
+    .cell.selected {
+      background: #CD853F;
+    }
+    .cell.filled {
+      background: #D2B48C;
+      position: relative;
+    }
+    .cell.filled:hover::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      background: #5D4037;
+      color: white;
+      padding: 4px 8px;
+      font-size: 10px;
+      top: -100%;
+      white-space: pre;
+      border-radius: 4px;
+      z-index: 10;
+    }
+    .nickname-input, #timezoneInput {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      margin-right: 10px;
+    }
+    button {
+      padding: 8px 16px;
+      background: #8B4513;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #A0522D;
+    }
+    #toggleFormButton {
+      background: #5D4037;
+    }
+    .info {
+      margin-top: 20px;
+      padding: 15px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .entries {
+      margin-top: 20px;
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .entry {
+      margin-bottom: 8px;
+      padding: 8px;
+      background: #f8f8f8;
+      border-radius: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .delete {
+      color: #D32F2F;
+      cursor: pointer;
+      margin-left: 8px;
+      font-weight: bold;
+    }
+    .charts {
+      margin-top: 40px;
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Group Availability Tracker</h1>
+    <div class="toggle-form">
+      <button id="toggleFormButton">Add Your Availability</button>
+    </div>
+    <div class="controls" id="entryForm" style="display: none;">
+      Nickname: <input type="text" id="nickname" class="nickname-input" required>
+      Timezone: <input list="timezones" id="timezoneInput">
+      <datalist id="timezones"></datalist>
+      <button id="saveButton">Save Availability</button>
+    </div>
+    <div id="availabilityGrid" class="grid"></div>
+    <div class="info" id="info"></div>
+    <div class="entries" id="entriesList"></div>
+    <div class="charts">
+      <canvas id="averageChart" height="100"></canvas>
+    </div>
+  </div>
+
+  <script>
+    const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const availabilityGrid = document.getElementById('availabilityGrid');
+    const nicknameInput = document.getElementById('nickname');
+    const timezoneInput = document.getElementById('timezoneInput');
+    const timezoneList = document.getElementById('timezones');
+    const saveButton = document.getElementById('saveButton');
+    const info = document.getElementById('info');
+    const entriesList = document.getElementById('entriesList');
+    const toggleFormButton = document.getElementById('toggleFormButton');
+    const entryForm = document.getElementById('entryForm');
+
+    let collectedData = JSON.parse(localStorage.getItem('availabilityData')) || [];
+    let selectedCells = new Set();
+
+    toggleFormButton.addEventListener('click', () => {
+      entryForm.style.display = entryForm.style.display === 'none' ? 'block' : 'none';
+    });
+
+    function populateTimezones() {
+      const tzs = Intl.supportedValuesOf('timeZone');
+      timezoneList.innerHTML = '';
+      for (const tz of tzs) {
+        const opt = document.createElement('option');
+        opt.value = tz;
+        timezoneList.appendChild(opt);
+      }
+      timezoneInput.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    }
+
+    function createGrid() {
+      availabilityGrid.innerHTML = '';
+      
+      // Create header row
+      ['Day/Hour', ...Array.from({length:24}, (_,i)=>i)].forEach(h => {
+        const div = document.createElement('div');
+        div.className = 'header';
+        div.textContent = h;
+        availabilityGrid.appendChild(div);
+      });
+      
+      // Create day rows
+      days.forEach((d, di) => {
+        const rowLabel = document.createElement('div');
+        rowLabel.className = 'header';
+        rowLabel.textContent = d;
+        availabilityGrid.appendChild(rowLabel);
+        
+        for (let h = 0; h < 24; h++) {
+          const wrap = document.createElement('div');
+          wrap.className = 'cell-wrapper';
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.dataset.day = di;
+          cell.dataset.hour = h;
+          wrap.appendChild(cell);
+          availabilityGrid.appendChild(wrap);
+
+          cell.addEventListener('click', () => {
+            const key = `${di}-${h}`;
+            if (selectedCells.has(key)) {
+              selectedCells.delete(key);
+              cell.classList.remove('selected');
+            } else {
+              selectedCells.add(key);
+              cell.classList.add('selected');
+            }
+            showCellInfo(di, h);
+          });
+        }
+      });
+    }
+
+    function showCellInfo(day, hour) {
+      const viewTz = timezoneInput.value;
+      const list = collectedData.filter(entry => {
+        return entry.slots.some(([d, h]) => {
+          const local = new Date(Date.UTC(2024, 0, 1 + d, h));
+          const utc = new Date(local.toLocaleString('en-US', { timeZone: 'UTC' }));
+          const view = new Date(utc.toLocaleString('en-US', { timeZone: viewTz }));
+          const viewDay = (view.getDay() + 6) % 7;
+          const viewHour = view.getHours();
+          return viewDay === day && viewHour === hour;
+        });
+      }).map(e => e.name);
+
+      info.textContent = list.length ? 
+        `Available at ${days[day]} ${hour}:00 — ${list.join(', ')}` : 
+        `No one available at ${days[day]} ${hour}:00`;
+    }
+
+    function renderAvailability() {
+      availabilityGrid.querySelectorAll('.cell').forEach(cell => {
+        cell.classList.remove('filled');
+        cell.removeAttribute('data-tooltip');
+      });
+
+      const viewTz = timezoneInput.value;
+      const counts = Array.from({length: 7}, () => Array(24).fill(0));
+
+      collectedData.forEach(entry => {
+        entry.slots.forEach(([day, hour]) => {
+          const local = new Date(Date.UTC(2024, 0, 1 + day, hour));
+          const utc = new Date(local.toLocaleString('en-US', { timeZone: 'UTC' }));
+          const view = new Date(utc.toLocaleString('en-US', { timeZone: viewTz }));
+
+          const viewDay = (view.getDay() + 6) % 7;
+          const viewHour = view.getHours();
+
+          counts[viewDay][viewHour]++;
+
+          const index = (viewDay + 1) * 25 + (viewHour + 1);
+          const wrap = availabilityGrid.children[index];
+          const cell = wrap?.firstChild;
+          if (cell) {
+            cell.classList.add('filled');
+            cell.dataset.tooltip = (cell.dataset.tooltip || '') + `${entry.name}\n`;
+          }
+        });
+      });
+
+      renderAverageChart(counts);
+    }
+
+    function renderEntriesList() {
+      entriesList.innerHTML = '';
+      collectedData.forEach((entry, i) => {
+        const div = document.createElement('div');
+        div.className = 'entry';
+        div.innerHTML = `
+          <span>${entry.name} (${entry.timezone})</span>
+          <span class="delete" data-i="${i}">❌ Delete</span>
+        `;
+        entriesList.appendChild(div);
+      });
+      
+      entriesList.querySelectorAll('.delete').forEach(btn => {
+        btn.onclick = () => {
+          const entryName = collectedData[btn.dataset.i].name;
+          if (confirm(`Delete "${entryName}"?`)) {
+            collectedData.splice(btn.dataset.i, 1);
+            saveData();
+            renderEntriesList();
+            renderAvailability();
+          }
+        };
+      });
+    }
+
+    function renderAverageChart(counts) {
+      const ctx = document.getElementById('averageChart').getContext('2d');
+      const totals = Array(24).fill(0);
+      
+      for (let d = 0; d < 7; d++) {
+        for (let h = 0; h < 24; h++) {
+          totals[h] += counts[d][h];
+        }
+      }
+      
+      const avg = totals.map(total => total / 7);
+
+      if (window.avgChart) window.avgChart.destroy();
+      
+      window.avgChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: Array.from({length:24}, (_,i)=>i+":00"),
+          datasets: [{
+            label: 'Average Availability (people)',
+            data: avg,
+            fill: true,
+            backgroundColor: 'rgba(139, 69, 19, 0.2)',
+            borderColor: 'rgba(139, 69, 19, 1)',
+            borderWidth: 2,
+            tension: 0.1
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: { 
+              beginAtZero: true, 
+              precision: 0,
+              title: {
+                display: true,
+                text: 'Average People Available'
+              }
+            },
+            x: {
+              title: {
+                display: true,
+                text: 'Hour of Day'
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function saveData() {
+      localStorage.setItem('availabilityData', JSON.stringify(collectedData));
+    }
+
+    saveButton.addEventListener('click', () => {
+      const name = nicknameInput.value.trim();
+      const timezone = timezoneInput.value;
+      
+      if (!name) {
+        alert('Please enter a nickname');
+        return;
+      }
+      
+      if (selectedCells.size === 0) {
+        alert('Please select at least one time slot');
+        return;
+      }
+      
+      const slots = Array.from(selectedCells).map(s => s.split('-').map(Number));
+      collectedData.push({ name, timezone, slots });
+      
+      saveData();
+      selectedCells.clear();
+      createGrid();
+      renderAvailability();
+      renderEntriesList();
+      nicknameInput.value = '';
+      entryForm.style.display = 'none';
+    });
+
+    timezoneInput.addEventListener('change', () => {
+      renderAvailability();
+    });
+
+    // Initialize
+    populateTimezones();
+    createGrid();
+    renderAvailability();
+    renderEntriesList();
+  </script>
+</body>
+</html>
