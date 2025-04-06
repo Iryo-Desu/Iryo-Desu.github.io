@@ -58,12 +58,16 @@
       background: #f0f0f0;
       cursor: pointer;
       transition: all 0.2s;
+      border: 2px solid transparent;
+      box-sizing: border-box;
     }
     .cell:hover {
       transform: scale(1.1);
     }
     .cell.selected {
       background: #CD853F;
+      border: 2px solid #4CAF50;
+      box-shadow: 0 0 5px rgba(76, 175, 80, 0.8);
     }
     .cell.filled {
       background: #D2B48C;
@@ -183,6 +187,13 @@
       entryForm.style.display = entryForm.style.display === 'none' ? 'block' : 'none';
     });
 
+    function formatHour(hour) {
+      if (hour === 0) return '12 AM';
+      if (hour < 12) return hour + ' AM';
+      if (hour === 12) return '12 PM';
+      return (hour - 12) + ' PM';
+    }
+
     function populateTimezones() {
       const tzs = Intl.supportedValuesOf('timeZone');
       timezoneList.innerHTML = '';
@@ -198,7 +209,7 @@
       availabilityGrid.innerHTML = '';
       
       // Create header row
-      ['Day/Hour', ...Array.from({length:24}, (_,i)=>i)].forEach(h => {
+      ['Day/Hour', ...Array.from({length:24}, (_,i) => formatHour(i))].forEach(h => {
         const div = document.createElement('div');
         div.className = 'header';
         div.textContent = h;
@@ -251,8 +262,8 @@
       }).map(e => e.name);
 
       info.textContent = list.length ? 
-        `Available at ${days[day]} ${hour}:00 — ${list.join(', ')}` : 
-        `No one available at ${days[day]} ${hour}:00`;
+        `Available at ${days[day]} ${formatHour(hour)} — ${list.join(', ')}` : 
+        `No one available at ${days[day]} ${formatHour(hour)}`;
     }
 
     function renderAvailability() {
@@ -330,7 +341,7 @@
       window.avgChart = new Chart(ctx, {
         type: 'line',
         data: {
-          labels: Array.from({length:24}, (_,i)=>i+":00"),
+          labels: Array.from({length:24}, (_,i) => formatHour(i)),
           datasets: [{
             label: 'Average Availability (people)',
             data: avg,
